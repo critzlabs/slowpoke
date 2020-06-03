@@ -1,17 +1,39 @@
-require "slowpoke/version"
+# dependencies
 require "rack/timeout/base"
+
+# modules
 require "slowpoke/middleware"
 require "slowpoke/railtie"
-require "action_dispatch/middleware/exception_wrapper"
-require "action_controller/base"
+require "slowpoke/timeout"
+require "slowpoke/version"
 
 module Slowpoke
   ENV_KEY = "slowpoke.timed_out".freeze
-end
 
-# custom error page
-# ActionDispatch::ExceptionWrapper.rescue_responses["Rack::Timeout::RequestTimeoutError"] = :service_unavailable
-# ActionDispatch::ExceptionWrapper.rescue_responses["Rack::Timeout::RequestExpiryError"] = :service_unavailable
+  def self.kill
+    if defined?(::PhusionPassenger)
+      `passenger-config detach-process #{Process.pid}`
+    elsif defined?(::Puma)
+      Process.kill("TERM", Process.pid)
+    else
+      Process.kill("QUIT", Process.pid)
+    end
+  end
+
+  def self.on_timeout(&block)
+    if block_given?
+      @on_timeout = block
+    else
+      @on_timeout
+    end
+  end
+
+  on_timeout do |env|
+    next if Rails.env.development? || Rails.env.test?
+
+    Slowpoke.kill
+  end
+end
 
 # remove noisy logger
 Rack::Timeout.unregister_state_change_observer(:logger)
